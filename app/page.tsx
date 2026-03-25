@@ -1,3 +1,3 @@
 export default function Home() {
-  return <main>mu8ic</main>;
+  return <main>BOSS MUSiC</main>;
 }
