@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(powershell -Command \"cd c:/dev/260325_mu8ic; npm install three @types/three\")",
+      "Skill(update-config)",
+      "Skill(update-config:*)",
+      "Read(//c/Users/kukiw/.claude/**)",
+      "mcp__supabase__list_projects",
+      "mcp__supabase__get_project",
+      "mcp__supabase__list_tables",
+      "mcp__supabase__list_migrations",
+      "mcp__supabase__get_project_url",
+      "mcp__supabase__get_publishable_keys",
+      "mcp__supabase__apply_migration"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\kukiw\\.claude"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "supabase"
+  ]
+}

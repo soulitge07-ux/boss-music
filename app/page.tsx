@@ -1,3 +1,9 @@
+import TunnelHero from "@/components/ui/tunnel-hero";
+
 export default function Home() {
-  return <main>BOSS MUSiC</main>;
+  return (
+    <main>
+      <TunnelHero />
+    </main>
+  );
 }
