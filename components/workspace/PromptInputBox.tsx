@@ -5,14 +5,13 @@ import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   ArrowUp,
-  Paperclip,
   Square,
   X,
   StopCircle,
   Mic,
-  Globe,
-  BrainCog,
-  FolderCode,
+  FileText,
+  Timer,
+  Layers,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -85,7 +84,7 @@ const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed left-[50%] top-[50%] z-50 grid w-full max-w-[90vw] md:max-w-[800px] translate-x-[-50%] translate-y-[-50%] gap-4 border border-[#333333] bg-[#1F2023] p-0 shadow-xl duration-300 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 rounded-2xl",
+        "fixed left-[50%] top-[50%] z-50 grid w-full max-w-[90vw] md:max-w-[560px] translate-x-[-50%] translate-y-[-50%] gap-4 border border-[#333333] bg-[#1F2023] p-0 shadow-xl duration-300 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 rounded-2xl",
         className
       )}
       {...props}
@@ -216,35 +215,6 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
   );
 };
 
-// ── ImageViewDialog ───────────────────────────────────────────────────────────
-interface ImageViewDialogProps {
-  imageUrl: string | null;
-  onClose: () => void;
-}
-const ImageViewDialog: React.FC<ImageViewDialogProps> = ({ imageUrl, onClose }) => {
-  if (!imageUrl) return null;
-  return (
-    <Dialog open={!!imageUrl} onOpenChange={onClose}>
-      <DialogContent className="p-0 border-none bg-transparent shadow-none max-w-[90vw] md:max-w-[800px]">
-        <DialogTitle className="sr-only">Image Preview</DialogTitle>
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          exit={{ opacity: 0, scale: 0.95 }}
-          transition={{ duration: 0.2, ease: "easeOut" }}
-          className="relative bg-[#1F2023] rounded-2xl overflow-hidden shadow-2xl"
-        >
-          <img
-            src={imageUrl}
-            alt="Full preview"
-            className="w-full max-h-[80vh] object-contain rounded-2xl"
-          />
-        </motion.div>
-      </DialogContent>
-    </Dialog>
-  );
-};
-
 // ── PromptInput context ───────────────────────────────────────────────────────
 interface PromptInputContextType {
   isLoading: boolean;
@@ -278,9 +248,6 @@ interface PromptInputProps {
   children: React.ReactNode;
   className?: string;
   disabled?: boolean;
-  onDragOver?: (e: React.DragEvent) => void;
-  onDragLeave?: (e: React.DragEvent) => void;
-  onDrop?: (e: React.DragEvent) => void;
 }
 const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
   (
@@ -293,9 +260,6 @@ const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
       onSubmit,
       children,
       disabled = false,
-      onDragOver,
-      onDragLeave,
-      onDrop,
     },
     ref
   ) => {
@@ -323,9 +287,6 @@ const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
               isLoading && "border-red-500/70",
               className
             )}
-            onDragOver={onDragOver}
-            onDragLeave={onDragLeave}
-            onDrop={onDrop}
           >
             {children}
           </div>
@@ -427,9 +388,31 @@ const CustomDivider: React.FC = () => (
   </div>
 );
 
+// ── Duration helpers ──────────────────────────────────────────────────────────
+const DURATION_OPTIONS = [
+  { label: "3s", value: 3 },
+  { label: "15s", value: 15 },
+  { label: "1 min", value: 60 },
+  { label: "2 min", value: 120 },
+  { label: "3 min", value: 180 },
+];
+
+function formatDuration(s: number) {
+  const opt = DURATION_OPTIONS.find((o) => o.value === s);
+  if (opt) return opt.label;
+  if (s < 60) return `${s}s`;
+  return `${Math.floor(s / 60)} min`;
+}
+
 // ── PromptInputBox (main export) ──────────────────────────────────────────────
+export interface MusicGenOptions {
+  lyrics: string;
+  duration: number;
+  batchSize: number;
+}
+
 interface PromptInputBoxProps {
-  onSend?: (message: string, files?: File[]) => void;
+  onSend?: (message: string, options: MusicGenOptions) => void;
   isLoading?: boolean;
   placeholder?: string;
   className?: string;
@@ -445,105 +428,51 @@ export const PromptInputBox = React.forwardRef(
     } = props;
 
     const [input, setInput] = React.useState("");
-    const [files, setFiles] = React.useState<File[]>([]);
-    const [filePreviews, setFilePreviews] = React.useState<{ [key: string]: string }>({});
-    const [selectedImage, setSelectedImage] = React.useState<string | null>(null);
     const [isRecording, setIsRecording] = React.useState(false);
-    const [showSearch, setShowSearch] = React.useState(false);
-    const [showThink, setShowThink] = React.useState(false);
-    const [showCanvas, setShowCanvas] = React.useState(false);
 
-    const uploadInputRef = React.useRef<HTMLInputElement>(null);
+    // Options
+    const [lyrics, setLyrics] = React.useState("");
+    const [lyricsModalOpen, setLyricsModalOpen] = React.useState(false);
+    const [lyricsDraft, setLyricsDraft] = React.useState("");
+    const [duration, setDuration] = React.useState(60);
+    const [durationOpen, setDurationOpen] = React.useState(false);
+    const [batchSize, setBatchSize] = React.useState(1);
+    const [batchOpen, setBatchOpen] = React.useState(false);
+
     const promptBoxRef = React.useRef<HTMLDivElement>(null);
+    const durationRef = React.useRef<HTMLDivElement>(null);
+    const batchRef = React.useRef<HTMLDivElement>(null);
 
-    const handleToggleChange = (value: string) => {
-      if (value === "search") {
-        setShowSearch((p) => !p);
-        setShowThink(false);
-      } else if (value === "think") {
-        setShowThink((p) => !p);
-        setShowSearch(false);
-      }
-    };
-
-    const isImageFile = (file: File) => file.type.startsWith("image/");
-
-    const processFile = (file: File) => {
-      if (!isImageFile(file)) return;
-      if (file.size > 10 * 1024 * 1024) return;
-      setFiles([file]);
-      const reader = new FileReader();
-      reader.onload = (e) =>
-        setFilePreviews({ [file.name]: e.target?.result as string });
-      reader.readAsDataURL(file);
-    };
-
-    const handleDragOver = React.useCallback((e: React.DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-    }, []);
-
-    const handleDragLeave = React.useCallback((e: React.DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-    }, []);
-
-    const handleDrop = React.useCallback(
-      (e: React.DragEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const dropped = Array.from(e.dataTransfer.files).filter(isImageFile);
-        if (dropped.length > 0) processFile(dropped[0]);
-      },
-      []
-    );
-
-    const handleRemoveFile = (index: number) => {
-      const fileToRemove = files[index];
-      if (fileToRemove && filePreviews[fileToRemove.name]) setFilePreviews({});
-      setFiles([]);
-    };
-
-    const handlePaste = React.useCallback((e: ClipboardEvent) => {
-      const items = e.clipboardData?.items;
-      if (!items) return;
-      for (let i = 0; i < items.length; i++) {
-        if (items[i].type.indexOf("image") !== -1) {
-          const file = items[i].getAsFile();
-          if (file) {
-            e.preventDefault();
-            processFile(file);
-            break;
-          }
-        }
-      }
-    }, []);
-
+    // Close popovers on outside click
     React.useEffect(() => {
-      document.addEventListener("paste", handlePaste);
-      return () => document.removeEventListener("paste", handlePaste);
-    }, [handlePaste]);
+      const handler = (e: MouseEvent) => {
+        if (durationRef.current && !durationRef.current.contains(e.target as Node)) {
+          setDurationOpen(false);
+        }
+        if (batchRef.current && !batchRef.current.contains(e.target as Node)) {
+          setBatchOpen(false);
+        }
+      };
+      document.addEventListener("mousedown", handler);
+      return () => document.removeEventListener("mousedown", handler);
+    }, []);
 
     const handleSubmit = () => {
-      if (!input.trim() && files.length === 0) return;
-      let messagePrefix = "";
-      if (showSearch) messagePrefix = "[Search: ";
-      else if (showThink) messagePrefix = "[Think: ";
-      else if (showCanvas) messagePrefix = "[Canvas: ";
-      const formattedInput = messagePrefix ? `${messagePrefix}${input}]` : input;
-      onSend(formattedInput, files);
+      if (!input.trim()) return;
+      onSend(input, { lyrics, duration, batchSize });
       setInput("");
-      setFiles([]);
-      setFilePreviews({});
     };
 
     const handleStartRecording = () => {};
-    const handleStopRecording = (duration: number) => {
+    const handleStopRecording = (dur: number) => {
       setIsRecording(false);
-      onSend(`[Voice message - ${duration} seconds]`, []);
+      onSend(`[Voice message - ${dur} seconds]`, { lyrics, duration, batchSize });
     };
 
-    const hasContent = input.trim() !== "" || files.length > 0;
+    const hasContent = input.trim() !== "";
+    const lyricsActive = lyrics.trim() !== "";
+    const durationNonDefault = duration !== 60;
+    const batchNonDefault = batchSize > 1;
 
     return (
       <>
@@ -559,41 +488,7 @@ export const PromptInputBox = React.forwardRef(
           )}
           disabled={isLoading || isRecording}
           ref={ref ?? promptBoxRef}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
         >
-          {/* Image previews */}
-          {files.length > 0 && !isRecording && (
-            <div className="flex flex-wrap gap-2 pb-1">
-              {files.map((file, index) => (
-                <div key={index} className="relative group">
-                  {file.type.startsWith("image/") && filePreviews[file.name] && (
-                    <div
-                      className="w-16 h-16 rounded-xl overflow-hidden cursor-pointer"
-                      onClick={() => setSelectedImage(filePreviews[file.name])}
-                    >
-                      <img
-                        src={filePreviews[file.name]}
-                        alt={file.name}
-                        className="h-full w-full object-cover"
-                      />
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleRemoveFile(index);
-                        }}
-                        className="absolute top-1 right-1 rounded-full bg-black/70 p-0.5"
-                      >
-                        <X className="h-3 w-3 text-white" />
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-
           {/* Textarea */}
           <div
             className={cn(
@@ -602,15 +497,7 @@ export const PromptInputBox = React.forwardRef(
             )}
           >
             <PromptInputTextarea
-              placeholder={
-                showSearch
-                  ? "Search the web..."
-                  : showThink
-                  ? "Think deeply..."
-                  : showCanvas
-                  ? "Create on canvas..."
-                  : placeholder
-              }
+              placeholder={placeholder}
               className="text-base"
             />
           </div>
@@ -633,137 +520,140 @@ export const PromptInputBox = React.forwardRef(
                 isRecording ? "opacity-0 invisible h-0" : "opacity-100 visible"
               )}
             >
-              {/* Attach */}
-              <PromptInputAction tooltip="Upload image">
-                <button
-                  onClick={() => uploadInputRef.current?.click()}
-                  className="flex h-8 w-8 text-[#9CA3AF] cursor-pointer items-center justify-center rounded-full transition-colors hover:bg-gray-600/30 hover:text-[#D1D5DB]"
-                  disabled={isRecording}
-                >
-                  <Paperclip className="h-5 w-5" />
-                  <input
-                    ref={uploadInputRef}
-                    type="file"
-                    className="hidden"
-                    accept="image/*"
-                    onChange={(e) => {
-                      if (e.target.files?.[0]) processFile(e.target.files[0]);
-                      if (e.target) e.target.value = "";
-                    }}
-                  />
-                </button>
-              </PromptInputAction>
-
-              {/* Search / Think / Canvas toggles */}
-              <div className="flex items-center">
-                {/* Search */}
-                <button
-                  type="button"
-                  onClick={() => handleToggleChange("search")}
-                  className={cn(
-                    "rounded-full transition-all flex items-center gap-1 px-2 py-1 border h-8",
-                    showSearch
-                      ? "bg-[#1EAEDB]/15 border-[#1EAEDB] text-[#1EAEDB]"
-                      : "bg-transparent border-transparent text-[#9CA3AF] hover:text-[#D1D5DB]"
-                  )}
-                >
-                  <div className="w-5 h-5 flex items-center justify-center flex-shrink-0">
-                    <motion.div
-                      animate={{ rotate: showSearch ? 360 : 0, scale: showSearch ? 1.1 : 1 }}
-                      whileHover={{ rotate: showSearch ? 360 : 15, scale: 1.1, transition: { type: "spring", stiffness: 300, damping: 10 } }}
-                      transition={{ type: "spring", stiffness: 260, damping: 25 }}
+              {/* Lyrics */}
+              <button
+                type="button"
+                onClick={() => {
+                  setLyricsDraft(lyrics);
+                  setLyricsModalOpen(true);
+                }}
+                className={cn(
+                  "rounded-full transition-all flex items-center gap-1 px-2 py-1 border h-8",
+                  lyricsActive
+                    ? "bg-[#8B5CF6]/15 border-[#8B5CF6] text-[#8B5CF6]"
+                    : "bg-transparent border-transparent text-[#9CA3AF] hover:text-[#D1D5DB]"
+                )}
+              >
+                <FileText className="w-4 h-4 flex-shrink-0" />
+                <AnimatePresence>
+                  {lyricsActive && (
+                    <motion.span
+                      initial={{ width: 0, opacity: 0 }}
+                      animate={{ width: "auto", opacity: 1 }}
+                      exit={{ width: 0, opacity: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className="text-xs overflow-hidden whitespace-nowrap flex-shrink-0"
                     >
-                      <Globe className={cn("w-4 h-4", showSearch ? "text-[#1EAEDB]" : "text-inherit")} />
-                    </motion.div>
-                  </div>
-                  <AnimatePresence>
-                    {showSearch && (
-                      <motion.span
-                        initial={{ width: 0, opacity: 0 }}
-                        animate={{ width: "auto", opacity: 1 }}
-                        exit={{ width: 0, opacity: 0 }}
-                        transition={{ duration: 0.2 }}
-                        className="text-xs overflow-hidden whitespace-nowrap text-[#1EAEDB] flex-shrink-0"
-                      >
-                        Search
-                      </motion.span>
-                    )}
-                  </AnimatePresence>
-                </button>
-
-                <CustomDivider />
-
-                {/* Think */}
-                <button
-                  type="button"
-                  onClick={() => handleToggleChange("think")}
-                  className={cn(
-                    "rounded-full transition-all flex items-center gap-1 px-2 py-1 border h-8",
-                    showThink
-                      ? "bg-[#8B5CF6]/15 border-[#8B5CF6] text-[#8B5CF6]"
-                      : "bg-transparent border-transparent text-[#9CA3AF] hover:text-[#D1D5DB]"
+                      Lyrics
+                    </motion.span>
                   )}
-                >
-                  <div className="w-5 h-5 flex items-center justify-center flex-shrink-0">
-                    <motion.div
-                      animate={{ rotate: showThink ? 360 : 0, scale: showThink ? 1.1 : 1 }}
-                      whileHover={{ rotate: showThink ? 360 : 15, scale: 1.1, transition: { type: "spring", stiffness: 300, damping: 10 } }}
-                      transition={{ type: "spring", stiffness: 260, damping: 25 }}
-                    >
-                      <BrainCog className={cn("w-4 h-4", showThink ? "text-[#8B5CF6]" : "text-inherit")} />
-                    </motion.div>
-                  </div>
-                  <AnimatePresence>
-                    {showThink && (
-                      <motion.span
-                        initial={{ width: 0, opacity: 0 }}
-                        animate={{ width: "auto", opacity: 1 }}
-                        exit={{ width: 0, opacity: 0 }}
-                        transition={{ duration: 0.2 }}
-                        className="text-xs overflow-hidden whitespace-nowrap text-[#8B5CF6] flex-shrink-0"
-                      >
-                        Think
-                      </motion.span>
-                    )}
-                  </AnimatePresence>
-                </button>
+                </AnimatePresence>
+              </button>
 
-                <CustomDivider />
+              <CustomDivider />
 
-                {/* Canvas */}
+              {/* Duration */}
+              <div ref={durationRef} className="relative">
                 <button
                   type="button"
-                  onClick={() => setShowCanvas((p) => !p)}
+                  onClick={() => {
+                    setDurationOpen((p) => !p);
+                    setBatchOpen(false);
+                  }}
                   className={cn(
                     "rounded-full transition-all flex items-center gap-1 px-2 py-1 border h-8",
-                    showCanvas
+                    durationNonDefault
                       ? "bg-[#F97316]/15 border-[#F97316] text-[#F97316]"
                       : "bg-transparent border-transparent text-[#9CA3AF] hover:text-[#D1D5DB]"
                   )}
                 >
-                  <div className="w-5 h-5 flex items-center justify-center flex-shrink-0">
-                    <motion.div
-                      animate={{ rotate: showCanvas ? 360 : 0, scale: showCanvas ? 1.1 : 1 }}
-                      whileHover={{ rotate: showCanvas ? 360 : 15, scale: 1.1, transition: { type: "spring", stiffness: 300, damping: 10 } }}
-                      transition={{ type: "spring", stiffness: 260, damping: 25 }}
-                    >
-                      <FolderCode className={cn("w-4 h-4", showCanvas ? "text-[#F97316]" : "text-inherit")} />
-                    </motion.div>
-                  </div>
-                  <AnimatePresence>
-                    {showCanvas && (
-                      <motion.span
-                        initial={{ width: 0, opacity: 0 }}
-                        animate={{ width: "auto", opacity: 1 }}
-                        exit={{ width: 0, opacity: 0 }}
-                        transition={{ duration: 0.2 }}
-                        className="text-xs overflow-hidden whitespace-nowrap text-[#F97316] flex-shrink-0"
-                      >
-                        Canvas
-                      </motion.span>
-                    )}
-                  </AnimatePresence>
+                  <Timer className="w-4 h-4 flex-shrink-0" />
+                  <span className="text-xs whitespace-nowrap">
+                    {formatDuration(duration)}
+                  </span>
                 </button>
+
+                <AnimatePresence>
+                  {durationOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 4, scale: 0.97 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 4, scale: 0.97 }}
+                      transition={{ duration: 0.15 }}
+                      className="absolute bottom-full mb-2 left-0 z-50 flex gap-1 p-1.5 rounded-xl border border-[#333] bg-[#1A1B1E] shadow-xl"
+                    >
+                      {DURATION_OPTIONS.map((opt) => (
+                        <button
+                          key={opt.value}
+                          onClick={() => {
+                            setDuration(opt.value);
+                            setDurationOpen(false);
+                          }}
+                          className={cn(
+                            "px-2.5 py-1 rounded-lg text-xs font-medium transition-all whitespace-nowrap",
+                            duration === opt.value
+                              ? "bg-[#F97316]/20 text-[#F97316] border border-[#F97316]/40"
+                              : "text-[#9CA3AF] hover:text-white hover:bg-white/5 border border-transparent"
+                          )}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              <CustomDivider />
+
+              {/* Batch size */}
+              <div ref={batchRef} className="relative">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBatchOpen((p) => !p);
+                    setDurationOpen(false);
+                  }}
+                  className={cn(
+                    "rounded-full transition-all flex items-center gap-1 px-2 py-1 border h-8",
+                    batchNonDefault
+                      ? "bg-[#1EAEDB]/15 border-[#1EAEDB] text-[#1EAEDB]"
+                      : "bg-transparent border-transparent text-[#9CA3AF] hover:text-[#D1D5DB]"
+                  )}
+                >
+                  <Layers className="w-4 h-4 flex-shrink-0" />
+                  <span className="text-xs">×{batchSize}</span>
+                </button>
+
+                <AnimatePresence>
+                  {batchOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 4, scale: 0.97 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 4, scale: 0.97 }}
+                      transition={{ duration: 0.15 }}
+                      className="absolute bottom-full mb-2 left-0 z-50 flex gap-1 p-1.5 rounded-xl border border-[#333] bg-[#1A1B1E] shadow-xl"
+                    >
+                      {[1, 2, 3, 4].map((n) => (
+                        <button
+                          key={n}
+                          onClick={() => {
+                            setBatchSize(n);
+                            setBatchOpen(false);
+                          }}
+                          className={cn(
+                            "w-8 h-8 rounded-lg text-xs font-medium transition-all",
+                            batchSize === n
+                              ? "bg-[#1EAEDB]/20 text-[#1EAEDB] border border-[#1EAEDB]/40"
+                              : "text-[#9CA3AF] hover:text-white hover:bg-white/5 border border-transparent"
+                          )}
+                        >
+                          {n}
+                        </button>
+                      ))}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             </div>
 
@@ -811,7 +701,57 @@ export const PromptInputBox = React.forwardRef(
           </PromptInputActions>
         </PromptInput>
 
-        <ImageViewDialog imageUrl={selectedImage} onClose={() => setSelectedImage(null)} />
+        {/* Lyrics modal */}
+        <Dialog open={lyricsModalOpen} onOpenChange={setLyricsModalOpen}>
+          <DialogContent>
+            <div className="p-6 pt-5">
+              <DialogTitle className="mb-1">Lyrics</DialogTitle>
+              <p className="text-xs text-gray-500 mb-4">
+                Add optional lyrics. Use tags like{" "}
+                <span className="text-gray-400">[Verse]</span>,{" "}
+                <span className="text-gray-400">[Chorus]</span>,{" "}
+                <span className="text-gray-400">[Bridge]</span>.
+              </p>
+              <textarea
+                value={lyricsDraft}
+                onChange={(e) => setLyricsDraft(e.target.value)}
+                rows={10}
+                className="w-full bg-[#2A2B30] border border-[#3A3B40] focus:border-[#555] rounded-xl p-3 text-sm text-gray-200 resize-none focus:outline-none transition-colors"
+                placeholder={"[Verse]\nYour lyrics here...\n\n[Chorus]\nChorus lyrics..."}
+                style={{ fontFamily: "var(--font-geist-mono)" }}
+              />
+              <div className="flex justify-end gap-2 mt-4">
+                {lyrics && (
+                  <button
+                    onClick={() => {
+                      setLyrics("");
+                      setLyricsDraft("");
+                      setLyricsModalOpen(false);
+                    }}
+                    className="px-3 py-1.5 rounded-lg text-xs text-red-400/70 hover:text-red-400 transition-colors"
+                  >
+                    Clear
+                  </button>
+                )}
+                <button
+                  onClick={() => setLyricsModalOpen(false)}
+                  className="px-4 py-1.5 rounded-lg text-xs text-gray-400 hover:text-white border border-[#3A3B40] hover:border-[#555] transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    setLyrics(lyricsDraft);
+                    setLyricsModalOpen(false);
+                  }}
+                  className="px-4 py-1.5 rounded-lg text-xs font-medium bg-[#8B5CF6]/20 text-[#a78bfa] border border-[#8B5CF6]/40 hover:bg-[#8B5CF6]/30 transition-all"
+                >
+                  Apply
+                </button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       </>
     );
   }
